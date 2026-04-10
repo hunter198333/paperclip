@@ -7,6 +7,7 @@ import {
   companies,
   companySkills,
   createDb,
+  heartbeatRunEvents,
   heartbeatRuns,
   issueComments,
   issueExecutionDecisions,
@@ -44,6 +45,7 @@ describeEmbeddedPostgres("cleanup removal services", () => {
     await db.delete(issueComments);
     await db.delete(issueExecutionDecisions);
     await db.delete(companySkills);
+    await db.delete(heartbeatRunEvents);
     await db.delete(heartbeatRuns);
     await db.delete(issues);
     await db.delete(agents);
@@ -99,6 +101,15 @@ describeEmbeddedPostgres("cleanup removal services", () => {
       contextSnapshot: { issueId },
     });
 
+    await db
+      .update(issues)
+      .set({
+        executionRunId: runId,
+        executionAgentNameKey: "codexcoder",
+        executionLockedAt: new Date(),
+      })
+      .where(eq(issues.id, issueId));
+
     return { agentId, companyId, issueId, runId };
   }
 
@@ -137,13 +148,29 @@ describeEmbeddedPostgres("cleanup removal services", () => {
       createdByRunId: runId,
     });
 
+    await db.insert(heartbeatRunEvents).values({
+      companyId,
+      runId,
+      agentId,
+      seq: 1,
+      eventType: "status",
+      message: "Run finished",
+    });
+
     const removed = await agentService(db).remove(agentId);
 
     expect(removed?.id).toBe(agentId);
     await expect(db.select().from(agents).where(eq(agents.id, agentId))).resolves.toHaveLength(0);
     await expect(db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId))).resolves.toHaveLength(0);
+    await expect(db.select().from(heartbeatRunEvents).where(eq(heartbeatRunEvents.runId, runId))).resolves.toHaveLength(0);
     await expect(db.select().from(issueComments).where(eq(issueComments.issueId, issueId))).resolves.toHaveLength(0);
     await expect(db.select().from(activityLog).where(eq(activityLog.companyId, companyId))).resolves.toHaveLength(0);
+    await expect(
+      db
+        .select({ executionRunId: issues.executionRunId })
+        .from(issues)
+        .where(eq(issues.id, issueId)),
+    ).resolves.toEqual([{ executionRunId: null }]);
   });
 
   it("removes issue read states and activity rows before deleting the company", async () => {

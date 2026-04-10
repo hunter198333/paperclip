@@ -477,11 +477,38 @@ export function agentService(db: Db) {
       if (!existing) return null;
 
       return db.transaction(async (tx) => {
+        const agentRunIds = await tx
+          .select({ id: heartbeatRuns.id })
+          .from(heartbeatRuns)
+          .where(eq(heartbeatRuns.agentId, id))
+          .then((rows) => rows.map((row) => row.id));
+
         await tx.update(agents).set({ reportsTo: null }).where(eq(agents.reportsTo, id));
         await tx
           .update(issues)
-          .set({ assigneeAgentId: null, createdByAgentId: null })
+          .set({
+            assigneeAgentId: null,
+            createdByAgentId: null,
+            ...(agentRunIds.length > 0
+              ? {
+                  executionRunId: null,
+                  executionAgentNameKey: null,
+                  executionLockedAt: null,
+                }
+              : {}),
+          })
           .where(or(eq(issues.assigneeAgentId, id), eq(issues.createdByAgentId, id)));
+        if (agentRunIds.length > 0) {
+          await tx
+            .update(issues)
+            .set({
+              executionRunId: null,
+              executionAgentNameKey: null,
+              executionLockedAt: null,
+            })
+            .where(inArray(issues.executionRunId, agentRunIds));
+          await tx.delete(heartbeatRunEvents).where(inArray(heartbeatRunEvents.runId, agentRunIds));
+        }
         await tx.delete(heartbeatRunEvents).where(eq(heartbeatRunEvents.agentId, id));
         await tx.delete(agentTaskSessions).where(eq(agentTaskSessions.agentId, id));
         await tx.delete(activityLog).where(
