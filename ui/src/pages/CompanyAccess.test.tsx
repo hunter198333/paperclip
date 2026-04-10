@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
-import type { AnchorHTMLAttributes } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,10 +18,6 @@ vi.mock("@/api/access", () => ({
     approveJoinRequest: vi.fn(),
     rejectJoinRequest: vi.fn(),
   },
-}));
-
-vi.mock("@/lib/router", () => ({
-  Link: ({ children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...props}>{children}</a>,
 }));
 
 vi.mock("@/context/CompanyContext", () => ({
@@ -122,7 +117,7 @@ describe("CompanyAccess", () => {
     vi.clearAllMocks();
   });
 
-  it("separates humans from agents and removes the summary cards", async () => {
+  it("keeps the page human-focused and explains implicit versus explicit grants", async () => {
     const root = createRoot(container);
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -140,14 +135,31 @@ describe("CompanyAccess", () => {
 
     expect(container.textContent).toContain("Manage company user memberships");
     expect(container.textContent).toContain("Humans");
-    expect(container.textContent).toContain("Agents");
     expect(container.textContent).toContain("Pending human joins");
-    expect(container.textContent).toContain("Pending agent joins");
     expect(container.textContent).toContain("User account");
+    expect(container.textContent).not.toContain("Agents");
+    expect(container.textContent).not.toContain("Pending agent joins");
+    expect(container.textContent).not.toContain("Open join request queue");
+    expect(container.textContent).not.toContain("Manage invites");
     expect(container.textContent).not.toContain("Active user accounts");
     expect(container.textContent).not.toContain("Suspended user accounts");
     expect(container.textContent).not.toContain("Pending user joins");
-    expect((container.textContent ?? "").indexOf("Humans")).toBeLessThan((container.textContent ?? "").indexOf("Agents"));
+
+    const editButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Edit",
+    );
+    expect(editButton).toBeTruthy();
+
+    await act(async () => {
+      editButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Implicit grants from role");
+    expect(document.body.textContent).toContain("Owner currently includes these permissions automatically.");
+    expect(document.body.textContent).toContain(
+      "Included implicitly by the Owner role. Add an explicit grant only if it should stay after the role changes.",
+    );
 
     await act(async () => {
       root.unmount();

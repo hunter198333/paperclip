@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HUMAN_COMPANY_MEMBERSHIP_ROLE_LABELS, PERMISSION_KEYS, type PermissionKey } from "@paperclipai/shared";
-import { Bot, ShieldCheck, Users } from "lucide-react";
+import { ShieldCheck, Users } from "lucide-react";
 import { accessApi, type CompanyMember } from "@/api/access";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,6 @@ import { Badge } from "@/components/ui/badge";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
 import { useToast } from "@/context/ToastContext";
-import { Link } from "@/lib/router";
 import { queryKeys } from "@/lib/queryKeys";
 
 const permissionLabels: Record<PermissionKey, string> = {
@@ -33,6 +32,17 @@ const permissionLabels: Record<PermissionKey, string> = {
 function formatGrantSummary(member: CompanyMember) {
   if (member.grants.length === 0) return "No explicit grants";
   return member.grants.map((grant) => permissionLabels[grant.permissionKey]).join(", ");
+}
+
+const implicitRoleGrantMap: Record<NonNullable<CompanyMember["membershipRole"]>, PermissionKey[]> = {
+  owner: ["agents:create", "users:invite", "users:manage_permissions", "tasks:assign", "joins:approve"],
+  admin: ["agents:create", "users:invite", "tasks:assign", "joins:approve"],
+  operator: ["tasks:assign"],
+  viewer: [],
+};
+
+function getImplicitGrantKeys(role: CompanyMember["membershipRole"]) {
+  return role ? implicitRoleGrantMap[role] : [];
 }
 
 export function CompanyAccess() {
@@ -168,10 +178,10 @@ export function CompanyAccess() {
   const access = membersQuery.data?.access;
   const pendingHumanJoinRequests =
     joinRequestsQuery.data?.filter((request) => request.requestType === "human") ?? [];
-  const pendingAgentJoinRequests =
-    joinRequestsQuery.data?.filter((request) => request.requestType === "agent") ?? [];
   const joinRequestActionPending =
     approveJoinRequestMutation.isPending || rejectJoinRequestMutation.isPending;
+  const implicitGrantKeys = getImplicitGrantKeys(draftRole);
+  const implicitGrantSet = new Set(implicitGrantKeys);
 
   return (
     <div className="max-w-6xl space-y-8">
@@ -192,21 +202,14 @@ export function CompanyAccess() {
       )}
 
       <section className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-base font-semibold">Humans</h2>
-            </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              Manage human company memberships first. Roles, status, and explicit grants all live here.
-            </p>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-base font-semibold">Humans</h2>
           </div>
-          {access?.canApproveJoinRequests ? (
-            <Link to="/inbox/requests" className="text-sm text-muted-foreground underline underline-offset-4">
-              Open join request queue
-            </Link>
-          ) : null}
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Manage human company memberships, status, and grants here.
+          </p>
         </div>
 
         {access?.canApproveJoinRequests && pendingHumanJoinRequests.length > 0 ? (
@@ -224,7 +227,6 @@ export function CompanyAccess() {
               {pendingHumanJoinRequests.map((request) => (
                 <PendingJoinRequestCard
                   key={request.id}
-                  requestId={request.id}
                   title={
                     request.requesterUser?.name ||
                     request.requestEmailSnapshot ||
@@ -296,67 +298,6 @@ export function CompanyAccess() {
         </div>
       </section>
 
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Bot className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-base font-semibold">Agents</h2>
-            </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              Agent access is handled through invite-driven join requests instead of human memberships.
-            </p>
-          </div>
-          <Link to="/company/settings/invites" className="text-sm text-muted-foreground underline underline-offset-4">
-            Manage invites
-          </Link>
-        </div>
-
-        {!access?.canApproveJoinRequests ? (
-          <div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-            Join request review requires company approval permissions.
-          </div>
-        ) : pendingAgentJoinRequests.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-            No pending agent join requests right now.
-          </div>
-        ) : (
-          <div className="space-y-3 rounded-xl border border-border px-4 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-semibold">Pending agent joins</h3>
-                <p className="text-sm text-muted-foreground">
-                  Review pending agents here, then use the full queue for broader history.
-                </p>
-              </div>
-              <Badge variant="outline">{pendingAgentJoinRequests.length} pending</Badge>
-            </div>
-            <div className="space-y-3">
-              {pendingAgentJoinRequests.map((request) => (
-                <PendingJoinRequestCard
-                  key={request.id}
-                  requestId={request.id}
-                  title={request.agentName || "Unknown agent requester"}
-                  subtitle={request.adapterType || "Adapter not provided"}
-                  context={
-                    request.invite
-                      ? `${request.invite.allowedJoinTypes} join invite${request.invite.humanRole ? ` • human role ${request.invite.humanRole}` : ""}`
-                      : "Invite metadata unavailable"
-                  }
-                  detail={request.capabilities || `Submitted ${new Date(request.createdAt).toLocaleString()}`}
-                  detailSecondary={`Submitted ${new Date(request.createdAt).toLocaleString()}`}
-                  approveLabel="Approve agent"
-                  rejectLabel="Reject agent"
-                  disabled={joinRequestActionPending}
-                  onApprove={() => approveJoinRequestMutation.mutate(request.id)}
-                  onReject={() => rejectJoinRequestMutation.mutate(request.id)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-      </section>
-
       <Dialog open={!!editingMember} onOpenChange={(open) => !open && setEditingMemberId(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -403,10 +344,27 @@ export function CompanyAccess() {
 
               <div className="space-y-3">
                 <div>
-                  <h3 className="text-sm font-medium">Explicit grants</h3>
+                  <h3 className="text-sm font-medium">Grants</h3>
                   <p className="text-sm text-muted-foreground">
-                    These permissions are stored separately from the role label. Use them when the member needs exceptions to the default role.
+                    Roles provide implicit grants automatically. Explicit grants below are only for overrides and extra access that should persist even if the role changes.
                   </p>
+                </div>
+                <div className="rounded-lg border border-border px-3 py-3">
+                  <div className="text-sm font-medium">Implicit grants from role</div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {draftRole
+                      ? `${HUMAN_COMPANY_MEMBERSHIP_ROLE_LABELS[draftRole]} currently includes these permissions automatically.`
+                      : "No role is selected, so this member has no implicit grants right now."}
+                  </p>
+                  {implicitGrantKeys.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {implicitGrantKeys.map((permissionKey) => (
+                        <Badge key={permissionKey} variant="outline">
+                          {permissionLabels[permissionKey]}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   {PERMISSION_KEYS.map((permissionKey) => (
@@ -428,6 +386,16 @@ export function CompanyAccess() {
                       <span className="space-y-1">
                         <span className="block text-sm font-medium">{permissionLabels[permissionKey]}</span>
                         <span className="block text-xs text-muted-foreground">{permissionKey}</span>
+                        {implicitGrantSet.has(permissionKey) ? (
+                          <span className="block text-xs text-muted-foreground">
+                            Included implicitly by the {draftRole ? HUMAN_COMPANY_MEMBERSHIP_ROLE_LABELS[draftRole] : "selected"} role. Add an explicit grant only if it should stay after the role changes.
+                          </span>
+                        ) : null}
+                        {draftGrants.has(permissionKey) ? (
+                          <span className="block text-xs text-muted-foreground">
+                            Stored explicitly for this member.
+                          </span>
+                        ) : null}
                       </span>
                     </label>
                   ))}
@@ -472,7 +440,6 @@ function PendingJoinRequestCard({
   onApprove,
   onReject,
 }: {
-  requestId: string;
   title: string;
   subtitle: string;
   context: string;
