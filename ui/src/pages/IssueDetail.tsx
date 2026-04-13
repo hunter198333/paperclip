@@ -78,6 +78,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatIssueActivityAction } from "@/lib/activity-format";
 import { buildIssuePropertiesPanelKey } from "../lib/issue-properties-panel-key";
 import { resolveIssueChatTranscriptRuns } from "../lib/issueChatTranscriptRuns";
+import { buildSubIssueDefaults } from "../lib/subIssueDefaults";
 import {
   Activity as ActivityIcon,
   Archive,
@@ -749,34 +750,9 @@ export function IssueDetail() {
   );
   const openNewSubIssue = useCallback(() => {
     if (!issue) return;
-    openNewIssue({
-      parentId: issue.id,
-      parentIdentifier: issue.identifier ?? undefined,
-      parentTitle: issue.title,
-      projectId: issue.projectId ?? undefined,
-      projectWorkspaceId: issue.projectWorkspaceId ?? undefined,
-      goalId: issue.goalId ?? undefined,
-      executionWorkspaceId: issue.executionWorkspaceId ?? undefined,
-      executionWorkspaceMode: issue.executionWorkspaceId ? "reuse_existing" : issue.executionWorkspacePreference ?? undefined,
-      parentExecutionWorkspaceLabel:
-        issue.currentExecutionWorkspace?.name
-          ?? issue.currentExecutionWorkspace?.branchName
-          ?? issue.currentExecutionWorkspace?.cwd
-          ?? issue.executionWorkspaceId
-          ?? undefined,
-    });
+    openNewIssue(buildSubIssueDefaults(issue));
   }, [
-    issue?.currentExecutionWorkspace?.branchName,
-    issue?.currentExecutionWorkspace?.cwd,
-    issue?.currentExecutionWorkspace?.name,
-    issue?.executionWorkspaceId,
-    issue?.executionWorkspacePreference,
-    issue?.goalId,
-    issue?.id,
-    issue?.identifier,
-    issue?.projectId,
-    issue?.projectWorkspaceId,
-    issue?.title,
+    issue,
     openNewIssue,
   ]);
 
