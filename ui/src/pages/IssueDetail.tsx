@@ -56,7 +56,6 @@ import { relativeTime, cn, formatTokens, visibleRunCostUsd } from "../lib/utils"
 import { ApprovalCard } from "../components/ApprovalCard";
 import { InlineEditor } from "../components/InlineEditor";
 import { IssueChatThread, type IssueChatComposerHandle } from "../components/IssueChatThread";
-import { useLiveRunTranscripts } from "../components/transcript/useLiveRunTranscripts";
 import { IssueDocumentsSection } from "../components/IssueDocumentsSection";
 import { IssuesList } from "../components/IssuesList";
 import { IssueProperties } from "../components/IssueProperties";
@@ -79,7 +78,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatIssueActivityAction } from "@/lib/activity-format";
 import { buildIssuePropertiesPanelKey } from "../lib/issue-properties-panel-key";
 import { shouldRenderRichSubIssuesSection } from "../lib/issue-detail-subissues";
-import { resolveIssueChatTranscriptRuns } from "../lib/issueChatTranscriptRuns";
 import { buildSubIssueDefaultsForViewer } from "../lib/subIssueDefaults";
 import {
   Activity as ActivityIcon,
@@ -485,7 +483,6 @@ export function IssueDetail() {
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [optimisticComments, setOptimisticComments] = useState<OptimisticIssueComment[]>([]);
   const [pendingCommentComposerFocusKey, setPendingCommentComposerFocusKey] = useState(0);
-  const [issueChatInitialTranscriptReady, setIssueChatInitialTranscriptReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastMarkedReadIssueIdRef = useRef<string | null>(null);
   const commentComposerRef = useRef<IssueChatComposerHandle | null>(null);
@@ -508,10 +505,6 @@ export function IssueDetail() {
         : undefined,
     [issueHeaderSeed, issueId, queryClient],
   );
-
-  useEffect(() => {
-    setIssueChatInitialTranscriptReady(false);
-  }, [issueId]);
 
   const { data: issue, isLoading, error } = useQuery({
     queryKey: queryKeys.issues.detail(issueId!),
@@ -694,24 +687,6 @@ export function IssueDetail() {
     for (const a of agents ?? []) map.set(a.id, a);
     return map;
   }, [agents]);
-  const transcriptRuns = useMemo(
-    () =>
-      resolveIssueChatTranscriptRuns({
-        linkedRuns: timelineRuns,
-        liveRuns: liveRuns ?? [],
-        activeRun,
-      }),
-    [activeRun, liveRuns, timelineRuns],
-  );
-  const {
-    transcriptByRun: issueChatTranscriptByRun,
-    hasOutputForRun: issueChatHasOutputForRun,
-    isInitialHydrating: issueChatTranscriptHydrating,
-  } = useLiveRunTranscripts({
-    runs: transcriptRuns,
-    companyId: issue?.companyId ?? selectedCompanyId,
-  });
-
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const options: MentionOption[] = [];
     const activeAgents = [...(agents ?? [])]
@@ -1803,14 +1778,7 @@ export function IssueDetail() {
     || (linkedRunsLoading && linkedRuns === undefined)
     || (liveRunsLoading && liveRuns === undefined)
     || (activeRunLoading && activeRun === undefined);
-  useEffect(() => {
-    if (issueChatInitialTranscriptReady) return;
-    if (issueChatCoreInitialLoading || issueChatTranscriptHydrating) return;
-    setIssueChatInitialTranscriptReady(true);
-  }, [issueChatCoreInitialLoading, issueChatInitialTranscriptReady, issueChatTranscriptHydrating]);
-  const issueChatInitialLoading =
-    issueChatCoreInitialLoading
-    || (!issueChatInitialTranscriptReady && issueChatTranscriptHydrating);
+  const issueChatInitialLoading = issueChatCoreInitialLoading;
   const activityInitialLoading =
     (activityLoading && activity === undefined)
     || (linkedRunsLoading && linkedRuns === undefined);
@@ -2371,9 +2339,6 @@ export function IssueDetail() {
                 issueStatus={issue.status}
                 agentMap={agentMap}
                 currentUserId={currentUserId}
-                enableLiveTranscriptPolling={false}
-                transcriptsByRunId={issueChatTranscriptByRun}
-                hasOutputForRun={issueChatHasOutputForRun}
                 draftKey={`paperclip:issue-comment-draft:${issue.id}`}
                 enableReassign
                 reassignOptions={commentReassignOptions}

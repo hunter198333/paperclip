@@ -254,6 +254,29 @@ function shouldSuppressAgentStatusToastForVisibleIssue(
   return !!agentId && agentId === context.assigneeAgentId;
 }
 
+function shouldDeferIssueRefetchForVisibleAgentActivity(
+  queryClient: QueryClient,
+  pathname: string,
+  payload: Record<string, unknown>,
+  options?: VisibleRouteOptions,
+): boolean {
+  const entityType = readString(payload.entityType);
+  const entityId = readString(payload.entityId);
+  const actorType = readString(payload.actorType);
+  const action = readString(payload.action);
+  const details = readRecord(payload.details);
+
+  if (entityType !== "issue" || !entityId) return false;
+  if (actorType !== "agent" && actorType !== "system") return false;
+  if (action !== "issue.updated") return false;
+  if (readString(details?.source) === "comment") return false;
+
+  const context = resolveVisibleIssueRouteContext(queryClient, pathname, options);
+  if (!context) return false;
+
+  return overlaps(context.issueRefs, buildIssueRefsForPayload(entityId, details));
+}
+
 const ISSUE_TOAST_ACTIONS = new Set(["issue.created", "issue.updated", "issue.comment_added"]);
 const AGENT_TOAST_STATUSES = new Set(["error"]);
 const RUN_TOAST_STATUSES = new Set(["failed", "timed_out", "cancelled"]);
@@ -481,6 +504,7 @@ function invalidateActivityQueries(
   companyId: string,
   payload: Record<string, unknown>,
   currentActor: { userId: string | null; agentId: string | null },
+  options?: { pathname?: string; isForegrounded?: boolean },
 ) {
   queryClient.invalidateQueries({ queryKey: queryKeys.activity(companyId) });
   queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(companyId) });
@@ -504,9 +528,20 @@ function invalidateActivityQueries(
           (action === "issue.updated" && readString(details?.source) === "comment")) &&
         ((actorType === "user" && !!currentActor.userId && actorId === currentActor.userId) ||
           (actorType === "agent" && !!currentActor.agentId && actorId === currentActor.agentId));
+      const visibleIssueAgentActivity =
+        !!options?.pathname &&
+        shouldDeferIssueRefetchForVisibleAgentActivity(
+          queryClient,
+          options.pathname,
+          payload,
+          { isForegrounded: options.isForegrounded },
+        );
       const issueRefs = resolveIssueQueryRefs(queryClient, companyId, entityId, details);
       for (const ref of issueRefs) {
-        const invalidationOptions = selfCommentActivity ? { refetchType: "inactive" as const } : undefined;
+        const invalidationOptions =
+          (selfCommentActivity || visibleIssueAgentActivity)
+            ? { refetchType: "inactive" as const }
+            : undefined;
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(ref), ...invalidationOptions });
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.activity(ref), ...invalidationOptions });
         if (action === "issue.comment_added") {
@@ -655,7 +690,7 @@ function handleLiveEvent(
   }
 
   if (event.type === "activity.logged") {
-    invalidateActivityQueries(queryClient, expectedCompanyId, payload, currentActor);
+    invalidateActivityQueries(queryClient, expectedCompanyId, payload, currentActor, { pathname });
     const action = readString(payload.action);
     const toast =
       buildActivityToast(queryClient, expectedCompanyId, payload, currentActor) ??
@@ -714,6 +749,7 @@ export const __liveUpdatesTestUtils = {
   closeSocketQuietly,
   invalidateActivityQueries,
   resolveLiveCompanyId,
+  shouldDeferIssueRefetchForVisibleAgentActivity,
   shouldSuppressActivityToastForVisibleIssue,
   shouldSuppressRunStatusToastForVisibleIssue,
   shouldSuppressAgentStatusToastForVisibleIssue,
