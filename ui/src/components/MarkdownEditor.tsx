@@ -505,7 +505,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
   const [isDragOver, setIsDragOver] = useState(false);
   const [richEditorError, setRichEditorError] = useState<string | null>(null);
   const dragDepthRef = useRef(0);
-  const suppressHtmlProcessing = /<img\s/i.test(value);
 
   // Stable ref for imageUploadHandler so plugins don't recreate on every render
   const imageUploadHandlerRef = useRef(imageUploadHandler);
@@ -1056,11 +1055,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       onPasteCapture={handlePasteCapture}
     >
       <MDXEditor
-        key={suppressHtmlProcessing ? "mdxeditor-no-html" : "mdxeditor-default"}
         ref={setEditorRef}
         markdown={editorValue}
         placeholder={placeholder}
-        suppressHtmlProcessing={suppressHtmlProcessing}
         onChange={(next) => {
           const echo = echoIgnoreMarkdownRef.current;
           if (echo !== null && next === echo) {

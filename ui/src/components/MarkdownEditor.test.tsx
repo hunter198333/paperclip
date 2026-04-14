@@ -126,8 +126,6 @@ vi.mock("@mdxeditor/editor", async () => {
     markdownShortcutPlugin: () => ({}),
     quotePlugin: () => ({}),
     realmPlugin: (plugin: unknown) => plugin,
-    jsxPlugin: () => ({}),
-    GenericJsxEditor: () => null,
     tablePlugin: () => ({}),
     thematicBreakPlugin: () => ({}),
   };
