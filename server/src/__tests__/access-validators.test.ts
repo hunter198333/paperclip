@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { updateCurrentUserProfileSchema } from "@paperclipai/shared";
+import {
+  updateCompanyMemberWithPermissionsSchema,
+  updateCurrentUserProfileSchema,
+} from "@paperclipai/shared";
 
 describe("access validators", () => {
   it("accepts HTTP(S) and Paperclip asset image URLs", () => {
@@ -18,5 +21,13 @@ describe("access validators", () => {
       name: "Ada Lovelace",
       image: "data:image/png;base64,AAAA",
     }).success).toBe(false);
+  });
+
+  it("defaults omitted combined member grants to an empty list", () => {
+    const result = updateCompanyMemberWithPermissionsSchema.parse({
+      membershipRole: "operator",
+    });
+
+    expect(result.grants).toEqual([]);
   });
 });
