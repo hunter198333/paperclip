@@ -124,8 +124,8 @@ function isValidProfileImage(value: string): boolean {
   if (profileImageAssetPathPattern.test(value)) return true;
 
   try {
-    new URL(value);
-    return true;
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
   } catch {
     return false;
   }
