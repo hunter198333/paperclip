@@ -1,178 +1,620 @@
+import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import {
+  useHostContext,
   usePluginAction,
   usePluginData,
   usePluginToast,
-  type PluginHostContext,
+  type PluginDetailTabProps,
   type PluginPageProps,
   type PluginSettingsPageProps,
+  type PluginWidgetProps,
 } from "@paperclipai/plugin-sdk/ui";
-import type React from "react";
-import { useState } from "react";
-import type { MissionInitializationResult, MissionIssueSummary } from "../mission-initialization.js";
+import type {
+  MissionCommand,
+  MissionListItem,
+  MissionPanelData,
+  MissionSettings,
+  MissionSummary,
+} from "../mission-service.js";
+import { MISSIONS_PAGE_ROUTE } from "../manifest.js";
 
-type EntitySlotProps = {
-  context: PluginHostContext & {
-    entityId: string;
-    entityType: string;
-  };
+type MissionAgentSummary = {
+  id: string;
+  name: string;
+  status: string;
+  title: string | null;
 };
 
-type SurfaceStatus = {
-  status: "ok";
-  checkedAt: string;
-  companyId: string | null;
-  databaseNamespace: string;
-  routeKeys: string[];
-  uiSlotIds: string[];
-  pluginId: string;
-  message: string;
-};
+type MissionFilter = "all" | MissionListItem["state"];
 
-type MissionsList = {
-  companyId: string;
-  missions: Array<{
-    issueId: string;
-    identifier: string | null;
-    title: string;
-    status: string;
-  }>;
-  routeKeys: string[];
-  pageRoute: string;
-  message: string;
-};
-
-const panelStyle = {
+const shellStyle: CSSProperties = {
   display: "grid",
-  gap: 12,
-  padding: 16,
-  border: "1px solid #d1d5db",
-  borderRadius: 8,
-  background: "#ffffff",
-  color: "#111827",
-} satisfies React.CSSProperties;
+  gap: "16px",
+  color: "inherit",
+};
 
-const gridStyle = {
+const sectionStyle: CSSProperties = {
   display: "grid",
-  gap: 8,
-} satisfies React.CSSProperties;
+  gap: "12px",
+  padding: "14px",
+  border: "1px solid var(--border)",
+  borderRadius: "8px",
+  background: "color-mix(in srgb, var(--card, transparent) 86%, transparent)",
+};
 
-const rowStyle = {
+const rowStyle: CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
   alignItems: "center",
-} satisfies React.CSSProperties;
+  justifyContent: "space-between",
+  gap: "12px",
+  flexWrap: "wrap",
+};
 
-const buttonStyle = {
-  border: "1px solid #111827",
-  background: "#111827",
-  color: "#ffffff",
-  borderRadius: 6,
-  padding: "6px 10px",
+const gridStyle: CSSProperties = {
+  display: "grid",
+  gap: "12px",
+};
+
+const metricsGridStyle: CSSProperties = {
+  display: "grid",
+  gap: "10px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+};
+
+const listGridStyle: CSSProperties = {
+  display: "grid",
+  gap: "8px",
+};
+
+const metricStyle: CSSProperties = {
+  display: "grid",
+  gap: "4px",
+  padding: "12px",
+  border: "1px solid color-mix(in srgb, var(--border) 76%, transparent)",
+  borderRadius: "8px",
+};
+
+const buttonStyle: CSSProperties = {
+  appearance: "none",
+  border: "1px solid var(--border)",
+  borderRadius: "999px",
+  background: "transparent",
+  color: "inherit",
+  padding: "6px 12px",
   font: "inherit",
   cursor: "pointer",
-} satisfies React.CSSProperties;
+};
 
-const secondaryButtonStyle = {
+const primaryButtonStyle: CSSProperties = {
   ...buttonStyle,
-  background: "#ffffff",
-  color: "#111827",
-} satisfies React.CSSProperties;
+  background: "var(--foreground)",
+  color: "var(--background)",
+  borderColor: "var(--foreground)",
+};
 
-function SummaryRows({ data }: { data: MissionIssueSummary }) {
-  return (
-    <div style={gridStyle}>
-      <div style={rowStyle}><span>State</span><strong>{data.state ?? "not-initialized"}</strong></div>
-      <div style={rowStyle}><span>Billing</span><code>{data.settings.billingCode ?? "unset"}</code></div>
-      <div style={rowStyle}><span>Namespace</span><code>{data.settings.databaseNamespace}</code></div>
-      <div style={rowStyle}><span>Open Findings</span><strong>{data.openFindingCount}</strong></div>
-    </div>
-  );
+const mutedTextStyle: CSSProperties = {
+  fontSize: "12px",
+  opacity: 0.74,
+  lineHeight: 1.45,
+};
+
+const codeStyle: CSSProperties = {
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  fontSize: "12px",
+};
+
+const fieldStyle: CSSProperties = {
+  display: "grid",
+  gap: "6px",
+};
+
+const inputStyle: CSSProperties = {
+  width: "100%",
+  border: "1px solid var(--border)",
+  borderRadius: "8px",
+  padding: "8px 10px",
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+};
+
+const checkboxRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+};
+
+function hostPath(companyPrefix: string | null | undefined, suffix: string): string {
+  return companyPrefix ? `/${companyPrefix}${suffix}` : suffix;
 }
 
-function Checklist({ data }: { data: MissionIssueSummary }) {
-  return (
-    <div style={gridStyle}>
-      {data.documentChecklist.map((item) => (
-        <div key={item.key} style={rowStyle}>
-          <code>{item.key}</code>
-          <strong>{item.present ? item.title ?? "present" : "missing"}</strong>
-        </div>
-      ))}
-    </div>
-  );
+function pluginPageHref(companyPrefix: string | null | undefined): string {
+  return hostPath(companyPrefix, `/${MISSIONS_PAGE_ROUTE}`);
 }
 
-function InitializeMissionButton({
-  companyId,
-  issueId,
-  disabledReason,
-  onDone,
+function issueHref(companyPrefix: string | null | undefined, issueRef: string): string {
+  return hostPath(companyPrefix, `/issues/${issueRef}`);
+}
+
+function toneForState(state: MissionSummary["state"] | MissionListItem["state"]): CSSProperties {
+  switch (state) {
+    case "blocked":
+      return {
+        background: "color-mix(in srgb, #dc2626 18%, transparent)",
+        borderColor: "color-mix(in srgb, #dc2626 60%, var(--border))",
+        color: "#fca5a5",
+      };
+    case "validating":
+      return {
+        background: "color-mix(in srgb, #2563eb 18%, transparent)",
+        borderColor: "color-mix(in srgb, #2563eb 60%, var(--border))",
+        color: "#93c5fd",
+      };
+    case "fixing":
+      return {
+        background: "color-mix(in srgb, #ea580c 18%, transparent)",
+        borderColor: "color-mix(in srgb, #ea580c 60%, var(--border))",
+        color: "#fdba74",
+      };
+    case "running":
+      return {
+        background: "color-mix(in srgb, #16a34a 18%, transparent)",
+        borderColor: "color-mix(in srgb, #16a34a 60%, var(--border))",
+        color: "#86efac",
+      };
+    case "complete":
+      return {
+        background: "color-mix(in srgb, #0f766e 18%, transparent)",
+        borderColor: "color-mix(in srgb, #0f766e 60%, var(--border))",
+        color: "#99f6e4",
+      };
+    case "planning":
+      return {
+        background: "color-mix(in srgb, #7c3aed 18%, transparent)",
+        borderColor: "color-mix(in srgb, #7c3aed 60%, var(--border))",
+        color: "#c4b5fd",
+      };
+    case "draft":
+    default:
+      return {
+        background: "color-mix(in srgb, #6b7280 18%, transparent)",
+        borderColor: "color-mix(in srgb, #6b7280 60%, var(--border))",
+        color: "#d1d5db",
+      };
+  }
+}
+
+function formatMoney(costCents: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(costCents / 100);
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "n/a";
+  return new Date(value).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function Section({
+  title,
+  action,
+  children,
 }: {
-  companyId: string;
-  issueId: string;
-  disabledReason: string | null;
-  onDone?: (result: MissionInitializationResult) => Promise<void> | void;
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
 }) {
-  const initializeMission = usePluginAction("initialize-mission");
-  const toast = usePluginToast();
-  const [pending, setPending] = useState(false);
-
   return (
-    <button
-      style={buttonStyle}
-      type="button"
-      disabled={pending || Boolean(disabledReason)}
-      title={disabledReason ?? undefined}
-      onClick={async () => {
-        setPending(true);
-        try {
-          const result = await initializeMission({ companyId, issueId }) as MissionInitializationResult;
-          toast({
-            title: result.created ? "Mission initialized" : "Mission already initialized",
-            body: result.summary.nextAction,
-            tone: "success",
-          });
-          await onDone?.(result);
-        } finally {
-          setPending(false);
-        }
+    <section style={sectionStyle}>
+      <div style={rowStyle}>
+        <strong>{title}</strong>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Metric({ label, value, detail }: { label: string; value: ReactNode; detail?: ReactNode }) {
+  return (
+    <div style={metricStyle}>
+      <span style={mutedTextStyle}>{label}</span>
+      <strong>{value}</strong>
+      {detail ? <span style={mutedTextStyle}>{detail}</span> : null}
+    </div>
+  );
+}
+
+function StateBadge({ state }: { state: MissionSummary["state"] | MissionListItem["state"] }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        border: "1px solid var(--border)",
+        borderRadius: "999px",
+        padding: "2px 8px",
+        fontSize: "11px",
+        textTransform: "capitalize",
+        ...toneForState(state),
       }}
     >
-      {pending ? "Initializing..." : "Init Mission"}
-    </button>
+      {state.replaceAll("_", " ")}
+    </span>
   );
 }
 
-export function MissionsPage({ context }: PluginPageProps) {
-  const companyId = context.companyId;
-  const { data, loading, error, refresh } = usePluginData<MissionsList>("missions-list", {
-    companyId,
-  });
+function CommandButtons({
+  commands,
+  onInitialize,
+  initializePending,
+}: {
+  commands: MissionCommand[];
+  onInitialize?: () => Promise<void>;
+  initializePending?: boolean;
+}) {
+  return (
+    <div style={{ ...rowStyle, justifyContent: "flex-start" }}>
+      {commands.map((command) => {
+        const active = command.key === "initialize" && command.enabled && onInitialize;
+        return (
+          <button
+            key={command.key}
+            type="button"
+            style={active ? primaryButtonStyle : buttonStyle}
+            disabled={!active || initializePending}
+            title={!command.enabled ? command.reason ?? undefined : undefined}
+            onClick={active ? () => void onInitialize() : undefined}
+          >
+            {command.key === "initialize" && initializePending ? "Initializing..." : command.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
-  if (!companyId) return <div style={panelStyle}>Open a company to view missions.</div>;
-  if (loading) return <div style={panelStyle}>Loading missions...</div>;
-  if (error) return <div style={panelStyle}>Missions page error: {error.message}</div>;
-  if (!data) return null;
+function SummarySections({
+  summary,
+  companyPrefix,
+}: {
+  summary: MissionSummary;
+  companyPrefix: string | null | undefined;
+}) {
+  return (
+    <>
+      <Section title="Overview">
+        <div style={rowStyle}>
+          <div style={{ display: "grid", gap: "4px" }}>
+            <div style={{ ...rowStyle, justifyContent: "flex-start" }}>
+              <strong>{summary.missionTitle}</strong>
+              <StateBadge state={summary.state} />
+            </div>
+            <div style={mutedTextStyle}>{summary.nextAction}</div>
+          </div>
+          <a href={issueHref(companyPrefix, summary.missionIdentifier ?? summary.missionIssueId)} style={buttonStyle}>
+            Open Root Issue
+          </a>
+        </div>
+        <div style={metricsGridStyle}>
+          <Metric label="Active Work" value={summary.activeWork.length} />
+          <Metric label="Blockers" value={summary.blockers.length} />
+          <Metric label="Findings" value={summary.validationSummary.counts.total} />
+          <Metric label="Governance Stops" value={summary.governanceStops.length} />
+          <Metric label="Runs" value={summary.runSummary.total} detail={`${summary.runSummary.active} active`} />
+          <Metric label="Cost" value={formatMoney(summary.costSummary.costCents)} detail={summary.costSummary.billingCode ?? "No billing code"} />
+        </div>
+      </Section>
+
+      <Section title="Documents">
+        <div style={listGridStyle}>
+          {summary.documentChecklist.map((document) => (
+            <div key={document.key} style={rowStyle}>
+              <span style={codeStyle}>{document.key}</span>
+              <span style={mutedTextStyle}>
+                {document.present ? document.title ?? "Present" : "Missing"}
+              </span>
+            </div>
+          ))}
+        </div>
+        {summary.documentErrors.length > 0 ? (
+          <div style={listGridStyle}>
+            {summary.documentErrors.map((error) => (
+              <div key={`${error.key}:${error.message}`} style={{ ...mutedTextStyle, color: "#fca5a5" }}>
+                <span style={codeStyle}>{error.key}</span>: {error.message}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Section>
+
+      <Section title="Issue Tree">
+        {summary.milestones.length === 0 ? (
+          <div style={mutedTextStyle}>No mission milestones are projected yet.</div>
+        ) : (
+          <div style={listGridStyle}>
+            {summary.milestones.map((milestone) => (
+              <div key={milestone.key} style={metricStyle}>
+                <div style={rowStyle}>
+                  <strong>{milestone.title}</strong>
+                  <span style={mutedTextStyle}>{milestone.issue?.identifier ?? milestone.issue?.id ?? milestone.key}</span>
+                </div>
+                {milestone.summary ? <div style={mutedTextStyle}>{milestone.summary}</div> : null}
+                <div style={rowStyle}>
+                  <span style={mutedTextStyle}>Features {milestone.features.length}</span>
+                  <span style={mutedTextStyle}>Validations {milestone.validations.length}</span>
+                  <span style={mutedTextStyle}>Fix Loops {milestone.fixLoops.length}</span>
+                  <span style={mutedTextStyle}>Blocked {milestone.blockers.length}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Blockers">
+        {summary.blockers.length === 0 ? (
+          <div style={mutedTextStyle}>No unresolved issue blockers.</div>
+        ) : (
+          <div style={listGridStyle}>
+            {summary.blockers.map((blocked) => (
+              <div key={blocked.issue.id} style={metricStyle}>
+                <div style={rowStyle}>
+                  <strong>{blocked.issue.title}</strong>
+                  <span style={mutedTextStyle}>{blocked.issue.identifier ?? blocked.issue.id}</span>
+                </div>
+                {blocked.blockers.map((blocker) => (
+                  <div key={blocker.id} style={mutedTextStyle}>
+                    Blocked by {blocker.identifier ?? blocker.id}: {blocker.title}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Validation">
+        <div style={metricsGridStyle}>
+          <Metric label="Reports" value={summary.validationSummary.reports.length} />
+          <Metric label="Findings" value={summary.validationSummary.counts.total} />
+          <Metric label="Blocking Open" value={summary.validationSummary.openBlockingFindingCount} />
+        </div>
+        {summary.validationSummary.reports.length > 0 ? (
+          <div style={listGridStyle}>
+            {summary.validationSummary.reports.map((report) => (
+              <div key={report.documentKey} style={metricStyle}>
+                <div style={rowStyle}>
+                  <strong>Round {report.round}</strong>
+                  <span style={mutedTextStyle}>{report.validatorRole.replaceAll("_", " ")}</span>
+                </div>
+                <div style={mutedTextStyle}>{report.summary}</div>
+                <div style={mutedTextStyle}>Updated {formatDate(report.updatedAt)}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={mutedTextStyle}>No validation rounds recorded yet.</div>
+        )}
+        {summary.validationSummary.findings.length > 0 ? (
+          <div style={listGridStyle}>
+            {summary.validationSummary.findings.map((finding) => (
+              <div key={finding.id} style={metricStyle}>
+                <div style={rowStyle}>
+                  <strong>{finding.title}</strong>
+                  <span style={mutedTextStyle}>
+                    {finding.severity.replaceAll("_", " ")} / {finding.computedStatus.replaceAll("_", " ")}
+                  </span>
+                </div>
+                <div style={mutedTextStyle}>
+                  Round {finding.round} via {finding.validatorRole.replaceAll("_", " ")}
+                </div>
+                {finding.waiverRationale ? <div style={mutedTextStyle}>Waiver: {finding.waiverRationale}</div> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Section>
+
+      <Section title="Governance">
+        {summary.governanceStops.length === 0 ? (
+          <div style={mutedTextStyle}>No active governance stops.</div>
+        ) : (
+          <div style={listGridStyle}>
+            {summary.governanceStops.map((stop) => (
+              <div key={`${stop.kind}:${stop.id}`} style={metricStyle}>
+                <div style={rowStyle}>
+                  <strong>{stop.label}</strong>
+                  <span style={mutedTextStyle}>{stop.kind.replaceAll("_", " ")}</span>
+                </div>
+                <div style={mutedTextStyle}>{stop.detail}</div>
+                <div style={mutedTextStyle}>Created {formatDate(stop.createdAt)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+    </>
+  );
+}
+
+function IssuePanelContent({
+  companyId,
+  companyPrefix,
+  issueId,
+}: {
+  companyId: string;
+  companyPrefix: string | null | undefined;
+  issueId: string;
+}) {
+  const panel = usePluginData<MissionPanelData>("mission-panel", { companyId, issueId });
+  const initializeMission = usePluginAction("initialize-mission");
+  const toast = usePluginToast();
+  const [initializePending, setInitializePending] = useState(false);
+
+  const handleInitialize = async () => {
+    setInitializePending(true);
+    try {
+      const nextPanel = await initializeMission({ companyId, issueId }) as MissionPanelData;
+      toast({
+        title: "Mission initialized",
+        body: nextPanel.mode === "mission" ? nextPanel.summary.nextAction : "Mission documents created.",
+        tone: "success",
+      });
+      panel.refresh();
+    } finally {
+      setInitializePending(false);
+    }
+  };
+
+  if (panel.loading) return <div style={sectionStyle}>Loading mission summary...</div>;
+  if (panel.error) return <div style={sectionStyle}>Mission panel error: {panel.error.message}</div>;
+  if (!panel.data) return null;
+
+  if (panel.data.mode === "not_mission") {
+    return (
+      <div style={shellStyle}>
+        <Section title="Mission">
+          <div style={mutedTextStyle}>This issue is not initialized as a mission.</div>
+          <div style={mutedTextStyle}>{panel.data.issue.title}</div>
+          <CommandButtons
+            commands={panel.data.availableCommands}
+            onInitialize={handleInitialize}
+            initializePending={initializePending}
+          />
+        </Section>
+      </div>
+    );
+  }
 
   return (
-    <div style={panelStyle}>
-      <div style={rowStyle}>
-        <strong>Missions</strong>
-        <button style={secondaryButtonStyle} type="button" onClick={() => refresh()}>
-          Refresh
-        </button>
-      </div>
-      <div>{data.message}</div>
-      {data.missions.length === 0 ? (
-        <div>No root mission issues have been initialized yet.</div>
-      ) : (
-        <div style={gridStyle}>
-          {data.missions.map((mission) => (
-            <div key={mission.issueId} style={{ ...rowStyle, borderTop: "1px solid #e5e7eb", paddingTop: 8 }}>
-              <span>{mission.identifier ?? mission.issueId}</span>
-              <strong>{mission.status}</strong>
+    <div style={shellStyle}>
+      <Section
+        title="Mission"
+        action={
+          <a href={pluginPageHref(companyPrefix)} style={buttonStyle}>
+            Company Missions
+          </a>
+        }
+      >
+        <div style={rowStyle}>
+          <div style={{ display: "grid", gap: "4px" }}>
+            <div>
+              <strong>{panel.data.currentIssueTitle}</strong>
             </div>
+            <div style={mutedTextStyle}>
+              Root {panel.data.missionRootIdentifier ?? panel.data.missionRootIssueId}
+            </div>
+          </div>
+          <StateBadge state={panel.data.summary.state} />
+        </div>
+        <CommandButtons commands={panel.data.summary.availableCommands} />
+      </Section>
+      <SummarySections summary={panel.data.summary} companyPrefix={companyPrefix} />
+    </div>
+  );
+}
+
+function MissionsPageContent({
+  companyId,
+  companyPrefix,
+}: {
+  companyId: string;
+  companyPrefix: string | null | undefined;
+}) {
+  const missions = usePluginData<MissionListItem[]>("mission-list", { companyId });
+  const [filter, setFilter] = useState<MissionFilter>("all");
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return (missions.data ?? []).filter((mission) => {
+      if (filter !== "all" && mission.state !== filter) return false;
+      if (!normalized) return true;
+      return [mission.missionTitle, mission.missionIdentifier ?? "", mission.nextAction]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized);
+    });
+  }, [filter, missions.data, query]);
+
+  if (missions.loading) return <div style={sectionStyle}>Loading missions...</div>;
+  if (missions.error) return <div style={sectionStyle}>Missions page error: {missions.error.message}</div>;
+
+  return (
+    <div style={shellStyle}>
+      <Section
+        title="Missions"
+        action={
+          <button type="button" style={buttonStyle} onClick={() => missions.refresh()}>
+            Refresh
+          </button>
+        }
+      >
+        <div style={rowStyle}>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search missions"
+            style={{ ...inputStyle, maxWidth: "20rem" }}
+          />
+          <div style={{ ...rowStyle, justifyContent: "flex-start" }}>
+            {(["all", "draft", "planning", "running", "blocked", "validating", "fixing", "complete"] as MissionFilter[]).map(
+              (candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  style={candidate === filter ? primaryButtonStyle : buttonStyle}
+                  onClick={() => setFilter(candidate)}
+                >
+                  {candidate}
+                </button>
+              ),
+            )}
+          </div>
+        </div>
+      </Section>
+
+      {filtered.length === 0 ? (
+        <Section title="Empty">
+          <div style={mutedTextStyle}>No missions matched this company and filter state.</div>
+        </Section>
+      ) : (
+        <div style={listGridStyle}>
+          {filtered.map((mission) => (
+            <section key={mission.missionIssueId} style={sectionStyle}>
+              <div style={rowStyle}>
+                <div style={{ display: "grid", gap: "4px" }}>
+                  <a
+                    href={issueHref(companyPrefix, mission.missionIdentifier ?? mission.missionIssueId)}
+                    style={{ color: "inherit", textDecoration: "none" }}
+                  >
+                    <strong>{mission.missionTitle}</strong>
+                  </a>
+                  <div style={mutedTextStyle}>{mission.nextAction}</div>
+                </div>
+                <StateBadge state={mission.state} />
+              </div>
+              <div style={metricsGridStyle}>
+                <Metric label="Work" value={mission.activeWorkCount} />
+                <Metric label="Blockers" value={mission.blockerCount} />
+                <Metric label="Milestones" value={mission.milestoneCount} />
+                <Metric label="Features" value={mission.featureCount} />
+                <Metric label="Findings" value={mission.validationFindingCount} />
+                <Metric label="Stops" value={mission.governanceStopCount} />
+                <Metric label="Cost" value={formatMoney(mission.costCents)} />
+                <Metric label="Updated" value={formatDate(mission.updatedAt)} detail={mission.latestRunStatus ?? "No runs"} />
+              </div>
+            </section>
           ))}
         </div>
       )}
@@ -180,100 +622,231 @@ export function MissionsPage({ context }: PluginPageProps) {
   );
 }
 
-export function MissionIssuePanel({ context }: EntitySlotProps) {
-  const { data, loading, error, refresh } = usePluginData<MissionIssueSummary>("mission-summary", {
-    companyId: context.companyId,
-    issueId: context.entityId,
-  });
+function DashboardWidgetContent({
+  companyId,
+  companyPrefix,
+}: {
+  companyId: string;
+  companyPrefix: string | null | undefined;
+}) {
+  const missions = usePluginData<MissionListItem[]>("mission-list", { companyId });
 
-  if (!context.companyId || !context.entityId) {
-    return <div style={panelStyle}>Mission controls need an issue context.</div>;
-  }
-  if (loading) return <div style={panelStyle}>Loading mission summary...</div>;
-  if (error) return <div style={panelStyle}>Mission panel error: {error.message}</div>;
-  if (!data) return null;
+  const counts = useMemo(() => {
+    const rows = missions.data ?? [];
+    return {
+      total: rows.length,
+      blocked: rows.filter((mission) => mission.state === "blocked").length,
+      running: rows.filter((mission) => mission.state === "running").length,
+      validating: rows.filter((mission) => mission.state === "validating").length,
+    };
+  }, [missions.data]);
 
-  if (!data.isMission) {
-    return (
-      <div style={panelStyle}>
-        <strong>Mission</strong>
-        <div>This issue has not been initialized as a mission yet.</div>
-        <div>{data.nextAction}</div>
-        <InitializeMissionButton
-          companyId={context.companyId}
-          issueId={context.entityId}
-          disabledReason={data.initializeDisabledReason}
-          onDone={async () => {
-            await refresh();
-          }}
-        />
-      </div>
-    );
-  }
+  if (missions.loading) return <div style={sectionStyle}>Loading missions overview...</div>;
+  if (missions.error) return <div style={sectionStyle}>Missions overview error: {missions.error.message}</div>;
 
   return (
-    <div style={panelStyle}>
+    <div style={shellStyle}>
       <div style={rowStyle}>
-        <strong>Mission</strong>
-        <button style={secondaryButtonStyle} type="button" onClick={() => refresh()}>
-          Refresh
-        </button>
+        <strong>Missions</strong>
+        <a href={pluginPageHref(companyPrefix)} style={buttonStyle}>
+          Open
+        </a>
       </div>
-      <SummaryRows data={data} />
-      <div><strong>Next action:</strong> {data.nextAction}</div>
-      <Checklist data={data} />
-      {data.parseProblems.length > 0 ? (
-        <div style={gridStyle}>
-          {data.parseProblems.map((problem) => (
-            <div key={`${problem.key}:${problem.message}`} style={{ color: "#b45309" }}>
-              <code>{problem.key}</code>: {problem.message}
-            </div>
-          ))}
-        </div>
-      ) : null}
+      <div style={metricsGridStyle}>
+        <Metric label="Total" value={counts.total} />
+        <Metric label="Blocked" value={counts.blocked} />
+        <Metric label="Running" value={counts.running} />
+        <Metric label="Validating" value={counts.validating} />
+      </div>
     </div>
   );
 }
 
-export function MissionToolbarButton({ context }: EntitySlotProps) {
-  const { data, loading, refresh } = usePluginData<MissionIssueSummary>("mission-summary", {
-    companyId: context.companyId,
-    issueId: context.entityId,
-  });
+function SettingsForm({
+  companyId,
+}: {
+  companyId: string;
+}) {
+  const settings = usePluginData<MissionSettings>("mission-settings", { companyId });
+  const agents = usePluginData<MissionAgentSummary[]>("mission-agents", { companyId });
+  const saveSettings = usePluginAction("save-mission-settings");
+  const toast = usePluginToast();
+  const [draft, setDraft] = useState<MissionSettings | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  if (!context.companyId || !context.entityId || loading || !data || data.isMission) return null;
+  useEffect(() => {
+    if (settings.data) setDraft(settings.data);
+  }, [settings.data]);
+
+  if (settings.loading || agents.loading || !draft) return <div style={sectionStyle}>Loading mission settings...</div>;
+  if (settings.error) return <div style={sectionStyle}>Missions settings error: {settings.error.message}</div>;
+  if (agents.error) return <div style={sectionStyle}>Missions agent list error: {agents.error.message}</div>;
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const next = await saveSettings({ companyId, ...draft }) as MissionSettings;
+      setDraft(next);
+      toast({
+        title: "Mission settings saved",
+        body: `Max validation rounds: ${next.maxValidationRounds}`,
+        tone: "success",
+      });
+      settings.refresh();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const agentOptions = agents.data ?? [];
 
   return (
-    <InitializeMissionButton
-      companyId={context.companyId}
-      issueId={context.entityId}
-      disabledReason={data.initializeDisabledReason}
-      onDone={async () => {
-        await refresh();
-      }}
-    />
+    <form style={shellStyle} onSubmit={submit}>
+      <Section
+        title="Mission Settings"
+        action={
+          <button type="submit" style={primaryButtonStyle} disabled={saving}>
+            {saving ? "Saving..." : "Save"}
+          </button>
+        }
+      >
+        <div style={gridStyle}>
+          <label style={fieldStyle}>
+            <span>Max validation rounds</span>
+            <input
+              type="number"
+              min={1}
+              value={draft.maxValidationRounds}
+              onChange={(event) =>
+                setDraft((current) =>
+                  current
+                    ? { ...current, maxValidationRounds: Math.max(1, Number(event.target.value) || 1) }
+                    : current,
+                )
+              }
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={checkboxRowStyle}>
+            <input
+              type="checkbox"
+              checked={draft.requireBlackBoxValidation}
+              onChange={(event) =>
+                setDraft((current) =>
+                  current ? { ...current, requireBlackBoxValidation: event.target.checked } : current,
+                )
+              }
+            />
+            <span>Require black-box validation</span>
+          </label>
+
+          <label style={checkboxRowStyle}>
+            <input
+              type="checkbox"
+              checked={draft.autoAdvance}
+              onChange={(event) =>
+                setDraft((current) => (current ? { ...current, autoAdvance: event.target.checked } : current))
+              }
+            />
+            <span>Auto-advance when orchestration is healthy</span>
+          </label>
+
+          <label style={fieldStyle}>
+            <span>Default worker agent</span>
+            <select
+              value={draft.defaultWorkerAgentId ?? ""}
+              onChange={(event) =>
+                setDraft((current) =>
+                  current ? { ...current, defaultWorkerAgentId: event.target.value || null } : current,
+                )
+              }
+              style={inputStyle}
+            >
+              <option value="">None</option>
+              {agentOptions.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name} ({agent.status})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={fieldStyle}>
+            <span>Default validator agent</span>
+            <select
+              value={draft.defaultValidatorAgentId ?? ""}
+              onChange={(event) =>
+                setDraft((current) =>
+                  current ? { ...current, defaultValidatorAgentId: event.target.value || null } : current,
+                )
+              }
+              style={inputStyle}
+            >
+              <option value="">None</option>
+              {agentOptions.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name} ({agent.status})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={fieldStyle}>
+            <span>Billing code policy</span>
+            <select
+              value={draft.defaultBillingCodePolicy}
+              onChange={(event) =>
+                setDraft((current) =>
+                  current
+                    ? {
+                        ...current,
+                        defaultBillingCodePolicy: event.target.value === "stable-prefix" ? "stable-prefix" : "mission-issue",
+                      }
+                    : current,
+                )
+              }
+              style={inputStyle}
+            >
+              <option value="mission-issue">Mission issue derived</option>
+              <option value="stable-prefix">Stable prefix</option>
+            </select>
+          </label>
+        </div>
+      </Section>
+    </form>
+  );
+}
+
+export function MissionsPage({ context }: PluginPageProps) {
+  if (!context.companyId) return <div style={sectionStyle}>Open a company to view missions.</div>;
+  return <MissionsPageContent companyId={context.companyId} companyPrefix={context.companyPrefix} />;
+}
+
+export function MissionIssuePanel({ context }: PluginDetailTabProps) {
+  if (!context.companyId || !context.entityId) {
+    return <div style={sectionStyle}>Mission controls require an issue inside a company.</div>;
+  }
+  return <IssuePanelContent companyId={context.companyId} companyPrefix={context.companyPrefix} issueId={context.entityId} />;
+}
+
+export function MissionsGlobalToolbarButton() {
+  const context = useHostContext();
+  if (!context.companyId) return null;
+  return (
+    <a href={pluginPageHref(context.companyPrefix)} style={buttonStyle}>
+      Missions
+    </a>
   );
 }
 
 export function MissionsSettingsPage({ context }: PluginSettingsPageProps) {
-  const { data, loading, error } = usePluginData<SurfaceStatus>("surface-status", {
-    ...(context.companyId ? { companyId: context.companyId } : {}),
-  });
+  if (!context.companyId) return <div style={sectionStyle}>Open a company to configure mission settings.</div>;
+  return <SettingsForm companyId={context.companyId} />;
+}
 
-  if (loading) return <div style={panelStyle}>Loading missions settings...</div>;
-  if (error) return <div style={panelStyle}>Missions settings error: {error.message}</div>;
-  if (!data) return null;
-
-  return (
-    <div style={panelStyle}>
-      <strong>Missions Settings Surface</strong>
-      <div style={gridStyle}>
-        <div style={rowStyle}><span>Plugin</span><code>{data.pluginId}</code></div>
-        <div style={rowStyle}><span>Namespace</span><code>{data.databaseNamespace}</code></div>
-        <div style={rowStyle}><span>Routes</span><strong>{data.routeKeys.length}</strong></div>
-        <div style={rowStyle}><span>UI Slots</span><strong>{data.uiSlotIds.length}</strong></div>
-      </div>
-      <div>{data.message}</div>
-    </div>
-  );
+export function MissionsDashboardWidget({ context }: PluginWidgetProps) {
+  if (!context.companyId) return <div style={sectionStyle}>Open a company to view mission health.</div>;
+  return <DashboardWidgetContent companyId={context.companyId} companyPrefix={context.companyPrefix} />;
 }

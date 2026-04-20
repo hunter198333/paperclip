@@ -1,6 +1,5 @@
 import type {
   Issue,
-  IssueDocument,
   IssueDocumentSummary,
   PluginContext,
   PluginIssueApprovalSummary,
@@ -9,6 +8,11 @@ import type {
   PluginIssueRelationSummary,
   PluginIssueRunSummary,
 } from "@paperclipai/plugin-sdk";
+
+type PluginIssueOriginKind = `plugin:${string}`;
+type IssueDocument = IssueDocumentSummary & {
+  body: string;
+};
 
 export const REQUIRED_DOCUMENT_KEYS = [
   "plan",
@@ -1476,7 +1480,7 @@ export async function initializeMission(
     });
   }
 
-  const nextOriginKind = rootMissionOrigin(ctx.manifest.id);
+  const nextOriginKind = rootMissionOrigin(ctx.manifest.id) as PluginIssueOriginKind;
   const nextOriginId = issue.originId ?? issue.identifier ?? issue.id;
   const nextBillingCode = missionBillingCode(issue);
   if (issue.originKind !== nextOriginKind || issue.originId !== nextOriginId || issue.billingCode !== nextBillingCode) {
@@ -1522,7 +1526,7 @@ export async function loadMissionPanelData(
       issue: toIssueLite(currentIssue, { blockedBy: [], blocks: [] }),
       availableCommands: buildCommands({
         isMission: false,
-        missingDocumentKeys: REQUIRED_DOCUMENT_KEYS,
+        missingDocumentKeys: [...REQUIRED_DOCUMENT_KEYS],
         documentErrors: [],
         hasGeneratedWork: false,
         validationSummary: {
@@ -1552,7 +1556,7 @@ export async function loadMissionPanelData(
 export async function listMissionSummaries(ctx: PluginContext, companyId: string): Promise<MissionListItem[]> {
   const roots = await ctx.issues.list({
     companyId,
-    originKind: rootMissionOrigin(ctx.manifest.id),
+    originKind: rootMissionOrigin(ctx.manifest.id) as PluginIssueOriginKind,
     limit: 200,
   });
   const summaries = await Promise.all(
