@@ -1,42 +1,29 @@
 # @paperclipai/plugin-missions
 
-First-party Missions plugin package for Paperclip mission orchestration workflows.
+First-party Missions plugin package for the current Paperclip alpha plugin runtime.
 
-This package is the packaging and installation home for the Missions plugin in the
-current alpha plugin runtime. Install is instance-wide, but the workflow it owns
-is company-scoped once the worker logic is invoked against company issues.
+This package now carries the installable mission workflow surface:
 
-Today this package carries the plugin identity, local install path, verification
-commands, and basic health surface. Mission advance/findings/waiver behavior
-continues to land in the same package under the sibling implementation issues.
+- manifest id `paperclip.missions`
+- scoped plugin API routes under `/api/plugins/:pluginId/api/*`
+- namespace migrations for mission-owned tables
+- worker handlers for mission initialization, decomposition, summary, advance, and waivers
+- package-local typecheck, test, and build verification
 
-## Operator Workflow
+## Declared Surfaces
 
-Build the plugin, then install it into the local Paperclip instance by repo path:
+- API routes
+  - `POST /issues/:issueId/missions/init`
+  - `POST /issues/:issueId/decompose`
+  - `GET /issues/:issueId/mission/summary`
+  - `POST /issues/:issueId/mission/advance`
+  - `POST /issues/:issueId/mission/findings/:findingId/waive`
+- UI slots
+  - issue `taskDetailView`
+  - issue `toolbarButton`
+  - plugin `dashboardWidget`
 
-```bash
-pnpm --filter @paperclipai/plugin-missions typecheck
-pnpm --filter @paperclipai/plugin-missions test
-pnpm --filter @paperclipai/plugin-missions build
-pnpm paperclipai plugin install ./packages/plugins/plugin-missions
-```
-
-The current first-party install path is a checked-out local package path. Do not
-document npm publishing for this plugin until the release/distribution path is
-ready.
-
-API install is equivalent:
-
-```bash
-curl -X POST http://127.0.0.1:3100/api/plugins/install \
-  -H "Content-Type: application/json" \
-  -d '{"packageName":"/absolute/path/to/paperclip/packages/plugins/plugin-missions","isLocalPath":true}'
-```
-
-Build first. The host loads the worker and UI from the manifest entrypoints under
-`dist/`, so a fresh install without a build will fail activation.
-
-## Developer Workflow
+## Verify
 
 From the repo root:
 
@@ -46,27 +33,12 @@ pnpm --filter @paperclipai/plugin-missions test
 pnpm --filter @paperclipai/plugin-missions build
 ```
 
-For local iteration inside the package directory:
+Install the local package into a running Paperclip instance after a successful
+build:
 
 ```bash
-pnpm install
-pnpm dev
-pnpm dev:ui
+pnpm paperclipai plugin install ./packages/plugins/plugin-missions
 ```
 
-## Maintenance Path
-
-The main package files are:
-
-- `src/manifest.ts` for plugin identity, capabilities, and mounted UI slots
-- `src/worker.ts` for worker lifecycle, state, events, and orchestration logic
-- `src/ui/index.tsx` for the currently mounted UI surface
-- `tests/plugin.spec.ts` for package-local verification
-
-When the Missions workflow changes, keep the package README and the targeted
-verification commands in sync with the actual install path and runtime surface.
-
-## Build Options
-
-- `pnpm build` uses esbuild presets from `@paperclipai/plugin-sdk/bundlers`.
-- `pnpm build:rollup` uses rollup presets from the same SDK.
+The host loads `dist/manifest.js`, `dist/worker.js`, and `dist/ui/`, so install
+after building.

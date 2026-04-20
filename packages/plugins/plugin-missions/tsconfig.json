@@ -17,8 +17,11 @@
     "rootDir": "."
   },
   "include": [
-    "src",
-    "tests"
+    "src/index.ts",
+    "src/manifest.ts",
+    "src/ui/**/*.tsx",
+    "src/worker.ts",
+    "tests/**/*.ts"
   ],
   "exclude": [
     "dist",
