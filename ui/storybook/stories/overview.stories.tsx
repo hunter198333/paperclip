@@ -102,7 +102,7 @@ const coverageRows = [
   ["Budget & finance", "Planned", "Incident cards, provider quotas, biller spend, subscription panels"],
   ["Dialogs & modals", "Planned", "New issue/agent/goal/project dialogs, diff modal, image gallery"],
   ["Projects & goals", "Planned", "Project properties, workspace cards, goal trees, runtime controls"],
-  ["Chat & comments", "Planned", "Comment threads, run chat, issue chat with timeline events"],
+  ["Chat & comments", "Covered", "Comment threads, run chat, issue chat with timeline events"],
   ["Data viz & misc", "Planned", "Activity charts, kanban, filter bar, live widget, onboarding, skeletons"],
   ["Full app pages", "Deferred", "API-driven route stories after page data loaders can be fixture-injected"],
 ];
