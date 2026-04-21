@@ -527,6 +527,19 @@ describe("missions plugin worker", () => {
       });
     }
 
+    const originalUpsert = harness.ctx.issues.documents.upsert;
+    const documentUpdates: Array<{ key: string; baseRevisionId: string | null | undefined }> = [];
+    harness.ctx.issues.documents.upsert = async (input) => {
+      const existing = await harness.ctx.issues.documents.get(input.issueId, input.key, input.companyId);
+      if (existing && input.baseRevisionId !== existing.latestRevisionId) {
+        throw new Error(
+          input.baseRevisionId ? "Document was updated by someone else" : "Document update requires baseRevisionId",
+        );
+      }
+      documentUpdates.push({ key: input.key, baseRevisionId: input.baseRevisionId });
+      return originalUpsert(input);
+    };
+
     const first = await harness.performAction<{ createdFixIssueIds: string[] }>("advance", {
       companyId,
       issueId: rootIssueId,
@@ -542,12 +555,35 @@ describe("missions plugin worker", () => {
     const generated = await harness.ctx.issues.list({ companyId, limit: 50 });
     expect(generated.filter((item) => item.originKind === "plugin:paperclip.missions:fix")).toHaveLength(1);
 
-    await expect(harness.performAction("waive", {
+    const summaryResponse = await plugin.definition.onApiRequest?.({
+      routeKey: "summary",
+      method: "GET",
+      path: `/issues/${rootIssueId}/missions/summary`,
+      params: { issueId: rootIssueId },
+      query: {},
+      body: null,
+      actor: { actorType: "agent", actorId: workerAgentId, agentId: workerAgentId, runId: "run-test" },
       companyId,
-      issueId: rootIssueId,
-      findingId: "FINDING-MISSION-001",
-      rationale: "Accepted temporarily for test coverage.",
-    })).resolves.toMatchObject({
+      headers: {},
+    });
+    expect(summaryResponse?.body).toMatchObject({
+      validationSummary: expect.objectContaining({
+        findings: [expect.objectContaining({ id: "FINDING-MISSION-001", computedStatus: "fix_created" })],
+      }),
+    });
+
+    const waiverResponse = await plugin.definition.onApiRequest?.({
+      routeKey: "waive",
+      method: "POST",
+      path: `/issues/${rootIssueId}/missions/findings/FINDING-MISSION-001/waive`,
+      params: { issueId: rootIssueId, findingKey: "FINDING-MISSION-001" },
+      query: {},
+      body: { rationale: "Accepted temporarily for test coverage." },
+      actor: { actorType: "agent", actorId: workerAgentId, agentId: workerAgentId, runId: "run-test" },
+      companyId,
+      headers: {},
+    });
+    expect(waiverResponse?.body).toMatchObject({
       findingId: "FINDING-MISSION-001",
       waived: true,
     });
@@ -555,5 +591,10 @@ describe("missions plugin worker", () => {
     const decisionLog = await harness.ctx.issues.documents.get(rootIssueId, "decision-log", companyId);
     expect(decisionLog?.body).toContain("paperclip:mission-finding-waiver:FINDING-MISSION-001");
     expect(decisionLog?.body).toContain("Accepted temporarily for test coverage.");
+    expect(documentUpdates.filter((update) => update.key === "decision-log")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ baseRevisionId: expect.any(String) }),
+      ]),
+    );
   });
 });

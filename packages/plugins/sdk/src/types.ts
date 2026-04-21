@@ -868,7 +868,7 @@ export interface PluginIssueDocumentsClient {
    *
    * Requires the `issue.documents.write` capability.
    *
-   * @param input - Document data including issueId, key, body, and optional title/format/changeSummary
+   * @param input - Document data including issueId, key, body, and optional title/format/changeSummary/baseRevisionId
    */
   upsert(input: {
     issueId: string;
@@ -878,6 +878,7 @@ export interface PluginIssueDocumentsClient {
     title?: string;
     format?: string;
     changeSummary?: string;
+    baseRevisionId?: string | null;
   }): Promise<IssueDocument>;
 
   /**

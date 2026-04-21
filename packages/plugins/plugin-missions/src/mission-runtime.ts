@@ -487,20 +487,33 @@ async function appendDecisionLog(
   ctx: PluginContext,
   companyId: string,
   issueId: string,
-  existingBody: string,
   entry: { marker: string; body: string },
 ) {
-  const nextBody = appendDecisionLogEntry(existingBody, entry);
-  if (nextBody === existingBody.trim()) return nextBody;
-  await ctx.issues.documents.upsert({
-    issueId,
-    companyId,
-    key: "decision-log",
-    title: "Decision Log",
-    body: nextBody,
-    changeSummary: "Recorded mission decision",
-  });
-  return nextBody;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const existing = await ctx.issues.documents.get(issueId, "decision-log", companyId);
+    const existingBody = existing?.body ?? "";
+    const nextBody = appendDecisionLogEntry(existingBody, entry);
+    if (nextBody === existingBody.trim()) return nextBody;
+
+    try {
+      await ctx.issues.documents.upsert({
+        issueId,
+        companyId,
+        key: "decision-log",
+        title: "Decision Log",
+        body: nextBody,
+        changeSummary: "Recorded mission decision",
+        baseRevisionId: existing?.latestRevisionId ?? null,
+      });
+      return nextBody;
+    } catch (error) {
+      const message = stringifyError(error);
+      if (attempt === 0 && message.includes("updated by someone else")) continue;
+      throw error;
+    }
+  }
+
+  throw new Error("Unable to append mission decision log entry");
 }
 
 async function ensureFixIssue(
@@ -590,7 +603,7 @@ export async function advanceMission(
     actorRunId: input.actorRunId ?? null,
   };
   const actorLabel = buildActorLabel(actor);
-  const { mission, summary, featuresDocument, decisionLogBody } = await buildSummaryInternal(
+  const { mission, summary, featuresDocument } = await buildSummaryInternal(
     ctx,
     input.companyId,
     input.issueId,
@@ -626,7 +639,6 @@ export async function advanceMission(
       ctx,
       input.companyId,
       input.issueId,
-      decisionLogBody,
       buildMissionEventEntry({
         markerKey: `advance:paused:${stopReason}:${summary.latestValidationRound}`,
         title: `Advance Paused ${summary.missionIdentifier ?? input.issueId}`,
@@ -655,13 +667,11 @@ export async function advanceMission(
     createdFixIssues.push(fixIssue);
   }
 
-  let decisionLogBodyAfterFixes = decisionLogBody;
   if (createdFixIssues.length > 0) {
-    decisionLogBodyAfterFixes = await appendDecisionLog(
+    await appendDecisionLog(
       ctx,
       input.companyId,
       input.issueId,
-      decisionLogBodyAfterFixes,
       buildMissionEventEntry({
         markerKey: `advance:fixes:${createdFixIssues.map((issue) => issue.id).join(",")}`,
         title: `Advance Created Fixes ${summary.missionIdentifier ?? input.issueId}`,
@@ -699,7 +709,6 @@ export async function advanceMission(
       ctx,
       input.companyId,
       input.issueId,
-      decisionLogBodyAfterFixes,
       buildMissionEventEntry({
         markerKey: `advance:wakeup:${wokenIssueIds.join(",")}`,
         title: `Advance Woke Issues ${summary.missionIdentifier ?? input.issueId}`,
@@ -765,7 +774,7 @@ export async function waiveMissionFinding(
     actorRunId: input.actorRunId ?? null,
   };
   const actorLabel = buildActorLabel(actor);
-  const { summary, decisionLogBody } = await buildSummaryInternal(ctx, input.companyId, input.issueId);
+  const { summary } = await buildSummaryInternal(ctx, input.companyId, input.issueId);
   const finding = summary.findings.find((candidate) => candidate.id === input.findingId);
   if (!finding) {
     throw new Error(`Mission finding not found: ${input.findingId}`);
@@ -778,7 +787,7 @@ export async function waiveMissionFinding(
     actorLabel,
     createdAt,
   });
-  await appendDecisionLog(ctx, input.companyId, input.issueId, decisionLogBody, waiverEntry);
+  await appendDecisionLog(ctx, input.companyId, input.issueId, waiverEntry);
   await ctx.state.set(
     { scopeKind: "issue", scopeId: input.issueId, stateKey: `waiver:${input.findingId}` },
     {
