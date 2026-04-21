@@ -331,6 +331,12 @@ function normalizeId(value: string) {
   return value.trim().toUpperCase();
 }
 
+function toIsoDateString(value: Date | string | null | undefined): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  return new Date(0).toISOString();
+}
+
 function rootMissionOrigin(pluginId: string) {
   return `plugin:${pluginId}`;
 }
@@ -1585,7 +1591,7 @@ export async function listMissionSummaries(ctx: PluginContext, companyId: string
       },
       costCents: summary.costSummary.costCents,
       latestRunStatus: summary.runSummary.latestRunStatus,
-      updatedAt: root.updatedAt.toISOString(),
+      updatedAt: toIsoDateString(root.updatedAt),
     }))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }

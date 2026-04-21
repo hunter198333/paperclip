@@ -220,4 +220,35 @@ describe("missions plugin worker", () => {
       expect.objectContaining({ id: workerAgentId, name: "Worker One" }),
     ]);
   });
+
+  it("lists persisted mission roots when host issue timestamps are serialized strings", async () => {
+    const companyId = randomUUID();
+    const rootIssueId = randomUUID();
+    const updatedAt = "2026-04-20T12:00:00.000Z";
+    const harness = createTestHarness({ manifest });
+
+    harness.seed({
+      issues: [
+        issue({
+          id: rootIssueId,
+          companyId,
+          title: "Persisted mission root",
+          identifier: "PAP-1691",
+          originKind: "plugin:paperclip.missions",
+          updatedAt: updatedAt as unknown as Date,
+        }),
+      ],
+    });
+
+    await plugin.definition.setup(harness.ctx);
+
+    const list = await harness.getData<Array<Record<string, unknown>>>("mission-list", { companyId });
+    expect(list).toEqual([
+      expect.objectContaining({
+        missionIssueId: rootIssueId,
+        missionTitle: "Persisted mission root",
+        updatedAt,
+      }),
+    ]);
+  });
 });

@@ -204,6 +204,10 @@ function formatDate(value: string | null) {
   });
 }
 
+function findingRenderKey(finding: MissionSummary["validationSummary"]["findings"][number]) {
+  return `${finding.sourceReportKey}:${finding.id}`;
+}
+
 function Section({
   title,
   action,
@@ -408,7 +412,7 @@ function SummarySections({
         {summary.validationSummary.findings.length > 0 ? (
           <div style={listGridStyle}>
             {summary.validationSummary.findings.map((finding) => (
-              <div key={finding.id} style={metricStyle}>
+              <div key={findingRenderKey(finding)} style={metricStyle}>
                 <div style={rowStyle}>
                   <strong>{finding.title}</strong>
                   <span style={mutedTextStyle}>
